@@ -1,9 +1,13 @@
 package io.github.staanov.highloadotushw.dao;
 
 import io.github.staanov.highloadotushw.dto.RegisterDto;
+import io.github.staanov.highloadotushw.mapper.UserRowMapper;
 import io.github.staanov.highloadotushw.model.User;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.core.support.JdbcDaoSupport;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -12,6 +16,8 @@ import org.springframework.stereotype.Repository;
 import javax.annotation.PostConstruct;
 import javax.sql.DataSource;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,45 +37,16 @@ public class UserDao extends JdbcDaoSupport {
     setDataSource(dataSource);
   }
 
-  public List<User> getAllUsers() {
-    String sql = "SELECT * FROM user";
-    List<Map<String, Object>> rowsUsers = getJdbcTemplate().queryForList(sql);
-
-    List<User> result = new ArrayList<>();
-    for (Map<String, Object> rowUser : rowsUsers) {
-      User user = new User();
-      user.setId((Long) rowUser.get("user_id"));
-      user.setLogin((String) rowUser.get("login"));
-      user.setFirstName((String) rowUser.get("first_name"));
-      user.setLastName((String) rowUser.get("last_name"));
-      user.setAge((Integer) rowUser.get("age"));
-      user.setCity((String) rowUser.get("city"));
-
-      String gender = (String) rowUser.get("gender");
-      if (gender.equalsIgnoreCase("MALE")) {
-        user.setGender(User.Gender.MALE);
-      } else if (gender.equalsIgnoreCase("FEMALE")) {
-        user.setGender(User.Gender.FEMALE);
-      } else {
-        throw new IllegalArgumentException("Gender is MALE or FEMALE");
-      }
-
-      sql = "SELECT interest FROM interest WHERE user_id = " + user.getId();
-      List<Map<String, Object>> rowsInterests = getJdbcTemplate().queryForList(sql);
-      List<String> interests = new ArrayList<>();
-      for (Map<String, Object> rowInterest : rowsInterests) {
-        interests.add((String) rowInterest.get("interest"));
-      }
-      user.setInterests(interests);
-
-      result.add(user);
-    }
-
-    return result;
-  }
-
   public void insertUser(RegisterDto registerDto) {
 
+    Integer id = insertUsers(registerDto);
+    insertInterests(registerDto, id);
+    insertSecurity(registerDto, id);
+    insertAuthority(registerDto);
+
+  }
+
+  private Integer insertUsers(RegisterDto registerDto) {
     GeneratedKeyHolder keyHolder = new GeneratedKeyHolder();
     String sqlUsers = "INSERT INTO user(login, first_name, last_name, age, gender, city) " +
         "VALUES (?, ?, ?, ?, ?, ?)";
@@ -87,51 +64,64 @@ public class UserDao extends JdbcDaoSupport {
       return preparedStatement;
     }, keyHolder);
 
-    Integer id = keyHolder.getKey().intValue();
+    return keyHolder.getKey().intValue();
+  }
 
+  private void insertInterests(RegisterDto registerDto, Integer id) {
     String sqlInterests = "INSERT INTO interest(user_id, interest) VALUES (?, ?)";
     for (String interest : registerDto.getInterests()) {
       getJdbcTemplate().update(sqlInterests, id, interest);
     }
+  }
 
+  private void insertSecurity(RegisterDto registerDto, Integer id) {
     String sqlSecurity = "INSERT INTO security(user_id, login, password) VALUES (?, ?, ?)";
     getJdbcTemplate().update(sqlSecurity, id,
         registerDto.getLogin(),
         bCryptPasswordEncoder.encode(registerDto.getPassword()));
+  }
 
+  private void insertAuthority(RegisterDto registerDto) {
     String sqlAuthority = "INSERT INTO authority(login, authority) VALUES (?, ?)";
     getJdbcTemplate().update(sqlAuthority, registerDto.getLogin(), "ROLE_USER");
   }
 
+  public List<User> getAllUsers() {
+    String sql = "SELECT * FROM user";
+    List<User> result = getJdbcTemplate().query(sql, new UserRowMapper());
+
+    for (User user : result) {
+      sql = "SELECT interest FROM interest WHERE user_id = :user_id";
+      NamedParameterJdbcTemplate jdbcTemplate = new NamedParameterJdbcTemplate(dataSource);
+      List<String> interests = jdbcTemplate.query(
+          sql,
+          new MapSqlParameterSource().addValue("user_id", user.getId()),
+          new InterestRowMapper());
+      user.setInterests(interests);
+    }
+
+    return result;
+  }
+
   public User getUserByLogin(String login) {
     String sql = "SELECT * FROM user WHERE login = '" + login + "'";
+    User user = getJdbcTemplate().query(sql, new UserRowMapper()).get(0);
 
-    Map<String, Object> row = getJdbcTemplate().queryForList(sql).get(0);
-    User user = new User();
-    user.setId((Long) row.get("user_id"));
-    user.setLogin((String) row.get("login"));
-    user.setFirstName((String) row.get("first_name"));
-    user.setLastName((String) row.get("last_name"));
-    user.setAge((Integer) row.get("age"));
-    user.setCity((String) row.get("city"));
-
-    String gender = (String) row.get("gender");
-    if (gender.equalsIgnoreCase("MALE")) {
-      user.setGender(User.Gender.MALE);
-    } else if (gender.equalsIgnoreCase("FEMALE")) {
-      user.setGender(User.Gender.FEMALE);
-    } else {
-      throw new IllegalArgumentException("Gender is MALE or FEMALE");
-    }
-
-    sql = "SELECT interest FROM interest WHERE user_id = " + user.getId();
-    List<Map<String, Object>> rowsInterests = getJdbcTemplate().queryForList(sql);
-    List<String> interests = new ArrayList<>();
-    for (Map<String, Object> rowInterest : rowsInterests) {
-      interests.add((String) rowInterest.get("interest"));
-    }
+    sql = "SELECT interest FROM interest WHERE user_id = :user_id";
+    NamedParameterJdbcTemplate jdbcTemplate = new NamedParameterJdbcTemplate(dataSource);
+    List<String> interests = jdbcTemplate.query(
+        sql,
+        new MapSqlParameterSource().addValue("user_id", user.getId()),
+        new InterestRowMapper());
     user.setInterests(interests);
 
     return user;
+  }
+
+  private class InterestRowMapper implements RowMapper<String> {
+    @Override
+    public String mapRow(ResultSet rs, int rowNum) throws SQLException {
+      return rs.getString("interest");
+    }
   }
 }

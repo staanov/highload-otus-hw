@@ -1,7 +1,5 @@
 package io.github.staanov.highloadotushw.model;
 
-import org.springframework.security.core.userdetails.UserDetails;
-
 import java.util.List;
 
 public class User {
