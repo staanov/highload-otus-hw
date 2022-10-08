@@ -18,8 +18,12 @@ import javax.sql.DataSource;
 @EnableGlobalMethodSecurity(prePostEnabled = true, securedEnabled = true, jsr250Enabled = true)
 public class SecurityConfig {
 
-  @Autowired
   public DataSource dataSource;
+
+  @Autowired
+  public SecurityConfig(DataSource dataSource) {
+    this.dataSource = dataSource;
+  }
 
   @Bean
   public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {

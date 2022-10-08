@@ -1,9 +1,17 @@
 package io.github.staanov.highloadotushw.dao;
 
 import io.github.staanov.highloadotushw.dto.RegisterDto;
+import io.github.staanov.highloadotushw.exception.FriendNotFoundException;
+import io.github.staanov.highloadotushw.exception.NotAllDataProvidedException;
+import io.github.staanov.highloadotushw.exception.RepeatedFriendAttemptException;
+import io.github.staanov.highloadotushw.exception.UserNotFoundException;
+import io.github.staanov.highloadotushw.mapper.FriendRowMapper;
+import io.github.staanov.highloadotushw.mapper.InterestRowMapper;
 import io.github.staanov.highloadotushw.mapper.UserRowMapper;
+import io.github.staanov.highloadotushw.model.Friend;
 import io.github.staanov.highloadotushw.model.User;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -21,28 +29,37 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 @Repository
 public class UserDao extends JdbcDaoSupport {
 
-  @Autowired
   DataSource dataSource;
+  BCryptPasswordEncoder bCryptPasswordEncoder;
 
   @Autowired
-  BCryptPasswordEncoder bCryptPasswordEncoder;
+  public UserDao(DataSource dataSource, BCryptPasswordEncoder bCryptPasswordEncoder) {
+    this.dataSource = dataSource;
+    this.bCryptPasswordEncoder = bCryptPasswordEncoder;
+  }
 
   @PostConstruct
   private void initialize() {
     setDataSource(dataSource);
   }
 
-  public void insertUser(RegisterDto registerDto) {
+  public void insertUser(RegisterDto registerDto) throws NotAllDataProvidedException {
 
-    Integer id = insertUsers(registerDto);
-    insertInterests(registerDto, id);
-    insertSecurity(registerDto, id);
-    insertAuthority(registerDto);
+    try {
+      Integer id = insertUsers(registerDto);
+      insertInterests(registerDto, id);
+      insertSecurity(registerDto, id);
+      insertAuthority(registerDto);
+    } catch (DataAccessException e) {
+      throw new NotAllDataProvidedException("You need to provide all of these data: " +
+          "login, password, firstName, lastName, age, gender (MALE or FEMALE), list of interests and city.\n" +
+          "If you provided all of these information, try to choose another login.");
+    }
+
 
   }
 
@@ -103,9 +120,14 @@ public class UserDao extends JdbcDaoSupport {
     return result;
   }
 
-  public User getUserByLogin(String login) {
+  public User getUserByLogin(String login) throws UserNotFoundException {
     String sql = "SELECT * FROM user WHERE login = '" + login + "'";
-    User user = getJdbcTemplate().query(sql, new UserRowMapper()).get(0);
+    User user = new User();
+    try {
+      user = getJdbcTemplate().query(sql, new UserRowMapper()).get(0);
+    } catch (IndexOutOfBoundsException e) {
+      throw new UserNotFoundException("User with this login is not found");
+    }
 
     sql = "SELECT interest FROM interest WHERE user_id = :user_id";
     NamedParameterJdbcTemplate jdbcTemplate = new NamedParameterJdbcTemplate(dataSource);
@@ -118,10 +140,84 @@ public class UserDao extends JdbcDaoSupport {
     return user;
   }
 
-  private class InterestRowMapper implements RowMapper<String> {
-    @Override
-    public String mapRow(ResultSet rs, int rowNum) throws SQLException {
-      return rs.getString("interest");
+  public void addFriend(User currentUser, User friendUser) throws RepeatedFriendAttemptException {
+    String preventSql = "SELECT second_user_id FROM friend WHERE first_user_id = :first_user_id";
+    NamedParameterJdbcTemplate jdbcTemplate = new NamedParameterJdbcTemplate(dataSource);
+
+    List<Long> ids = jdbcTemplate.query(preventSql,
+        new MapSqlParameterSource().addValue("first_user_id", friendUser.getId()),
+        (rs, rowNum) -> rs.getLong("second_user_id"));
+
+    if (ids.contains(currentUser.getId())) {
+      throw new RepeatedFriendAttemptException("This user is your friend currently");
     }
+
+    String sql = "INSERT INTO friend VALUES (:current_user_id, :friend_user_id)";
+    try {
+      jdbcTemplate.update(sql,
+          new MapSqlParameterSource()
+              .addValue("current_user_id", currentUser.getId())
+              .addValue("friend_user_id", friendUser.getId()));
+    } catch (DataAccessException e) {
+      throw new RepeatedFriendAttemptException("This user is your friend currently");
+    }
+  }
+
+  public void removeFriend(User currentUser, User friendUser) throws FriendNotFoundException {
+    String preventSql = "SELECT * FROM friend WHERE first_user_id = :first_user_id AND second_user_id = :second_user_id";
+    NamedParameterJdbcTemplate jdbcTemplate = new NamedParameterJdbcTemplate(dataSource);
+    List<Friend> preventList = jdbcTemplate.query(preventSql,
+        new MapSqlParameterSource()
+            .addValue("first_user_id", currentUser.getId())
+            .addValue("second_user_id", friendUser.getId()),
+        new FriendRowMapper());
+
+    if (!preventList.isEmpty()) {
+      String sql = "DELETE FROM friend WHERE first_user_id = :first_user_id AND second_user_id = :second_user_id";
+      jdbcTemplate.update(sql,
+          new MapSqlParameterSource()
+              .addValue("first_user_id", currentUser.getId())
+              .addValue("second_user_id", friendUser.getId()));
+    } else {
+      preventList = jdbcTemplate.query(preventSql,
+          new MapSqlParameterSource()
+              .addValue("first_user_id", friendUser.getId())
+              .addValue("second_user_id", currentUser.getId()),
+          new FriendRowMapper());
+      if (!preventList.isEmpty()) {
+        String sql = "DELETE FROM friend WHERE first_user_id = :first_user_id AND second_user_id = :second_user_id";
+        jdbcTemplate.update(sql,
+            new MapSqlParameterSource()
+                .addValue("first_user_id", friendUser.getId())
+                .addValue("second_user_id", currentUser.getId()));
+      } else {
+        throw new FriendNotFoundException("Mentioned user is not your friend");
+      }
+    }
+  }
+
+  public List<User> getUserFriends(User user) {
+    NamedParameterJdbcTemplate jdbcTemplate = new NamedParameterJdbcTemplate(dataSource);
+
+    String firstSql = "SELECT second_user_id FROM friend WHERE first_user_id = :user_id";
+    List<Long> friendsIds = jdbcTemplate.query(firstSql,
+        new MapSqlParameterSource().addValue("user_id", user.getId()),
+        (rs, rowNum) -> rs.getLong("second_user_id"));
+
+    String secondSql = "SELECT first_user_id FROM friend WHERE second_user_id = :user_id";
+    List<Long> anotherFriendsIds = jdbcTemplate.query(secondSql,
+        new MapSqlParameterSource().addValue("user_id", user.getId()),
+        (rs, rowNum) -> rs.getLong("first_user_id"));
+
+    friendsIds.addAll(anotherFriendsIds);
+
+    List<User> userFriends = new ArrayList<>();
+    String sql = "SELECT * FROM user WHERE user_id = :id";
+    for (Long id : friendsIds) {
+      User u = jdbcTemplate.query(sql, new MapSqlParameterSource().addValue("id", id), new UserRowMapper()).get(0);
+      userFriends.add(u);
+    }
+
+    return userFriends;
   }
 }
