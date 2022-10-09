@@ -1,0 +1,35 @@
+version: '3'
+
+services:
+  mysqldb:
+    image: mysql:8
+    container_name: mysqldb
+    restart: always
+    hostname: mysql
+    volumes:
+      - ./src/main/resources/schema.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: otushw
+    healthcheck:
+      test: [ "CMD", "mysqladmin" ,"ping", "-h", "localhost" ]
+      timeout: 20s
+      retries: 10
+
+  highload-otus-hw:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: highload-otus-hw
+    restart: always
+    depends_on:
+      - mysqldb
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: "Europe/Moscow"
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysqldb:3306/otushw?autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
