@@ -45,4 +45,10 @@ public class UserService {
   public List<User> getUserFriends(User user) {
     return userDao.getUserFriends(user);
   }
+
+  public List<User> getUsersByNamesPrefix(String firstNamePrefix, String lastNamePrefix) {
+    firstNamePrefix = firstNamePrefix + "%";
+    lastNamePrefix = lastNamePrefix + "%";
+    return userDao.getUsersByNamesPrefix(firstNamePrefix, lastNamePrefix);
+  }
 }

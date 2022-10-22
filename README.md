@@ -21,4 +21,5 @@
   - удалить пользователя из друзей (DELETE-запрос `Remove a friend`)
   - получить список друзей другого пользователя (GET-запрос `Get a user friends`)
   - посмотреть список своих друзей (GET-запрос `Get my friends (friends of authorized user)`)
+  - найти пользователей по префиксу имени и префиксу фамилии (GET-запрос `Get users by first and last names prefixes` с query-параметрами firstNamePrefix и lastNamePrefix)
   - выйти из системы (GET-запрос `Logout`)

@@ -13,7 +13,6 @@ import io.github.staanov.highloadotushw.model.User;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.core.support.JdbcDaoSupport;
@@ -24,8 +23,6 @@ import org.springframework.stereotype.Repository;
 import javax.annotation.PostConstruct;
 import javax.sql.DataSource;
 import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
@@ -219,5 +216,28 @@ public class UserDao extends JdbcDaoSupport {
     }
 
     return userFriends;
+  }
+
+  public List<User> getUsersByNamesPrefix(String firstNamePrefix, String lastNamePrefix) {
+    NamedParameterJdbcTemplate jdbcTemplate = new NamedParameterJdbcTemplate(dataSource);
+
+    String sql = "SELECT * FROM user WHERE first_name LIKE :first_name_prefix AND last_name LIKE :last_name_prefix " +
+        "ORDER BY user_id";
+    List<User> result = jdbcTemplate.query(sql,
+        new MapSqlParameterSource()
+            .addValue("first_name_prefix", firstNamePrefix)
+            .addValue("last_name_prefix", lastNamePrefix),
+        new UserRowMapper());
+
+    for (User user : result) {
+      sql = "SELECT interest FROM interest WHERE user_id = :user_id";
+      List<String> interests = jdbcTemplate.query(
+          sql,
+          new MapSqlParameterSource().addValue("user_id", user.getId()),
+          new InterestRowMapper());
+      user.setInterests(interests);
+    }
+
+    return result;
   }
 }
