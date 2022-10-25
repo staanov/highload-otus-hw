@@ -1,0 +1,4 @@
+russian-names==0.1.2
+requests
+pandas
+transliterate
