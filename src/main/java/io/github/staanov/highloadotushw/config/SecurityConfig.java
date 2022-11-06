@@ -34,6 +34,8 @@ public class SecurityConfig {
         .authorizeRequests()
         .antMatchers("/api/v1/auth/**")
         .permitAll()
+        .antMatchers("/admin/**")
+        .permitAll()
         .anyRequest()
         .authenticated()
         .and()
