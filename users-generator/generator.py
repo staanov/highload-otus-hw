@@ -1,7 +1,7 @@
+import asyncio
 import pandas as pd
-import requests
 import random
-import string
+from aiohttp import ClientSession
 from russian_names import RussianNames
 from transliterate import translit
 
@@ -33,14 +33,15 @@ def generate_city():
     return city_en
 
 
-def generate_male_users(url):
-    for i in range(500000):
+def generate_male_users():
+    payloads = []
+    for i in range(2):
         names = generate_names(True)
         first_name = names.get("name")
         last_name = names.get("surname")
         age = random.randrange(14, 71)
         login = first_name + last_name + str(age)
-        password = ''.join(random.choices(string.ascii_letters + string.digits, k=20))
+        password = first_name + last_name + str(age)
         gender = "MALE"
         interests = generate_interests()
         city = generate_city()
@@ -56,17 +57,20 @@ def generate_male_users(url):
             'city': city
         }
 
-        requests.post(url, json=payload)
+        payloads.append(payload)
+
+    return payloads
 
 
-def generate_female_users(url):
-    for i in range(500000):
+def generate_female_users():
+    payloads = []
+    for i in range(2):
         names = generate_names(False)
         first_name = names.get("name")
         last_name = names.get("surname")
         age = random.randrange(14, 71)
         login = first_name + last_name + str(age)
-        password = ''.join(random.choices(string.ascii_letters + string.digits, k=20))
+        password = first_name + last_name + str(age)
         gender = "FEMALE"
         interests = generate_interests()
         city = generate_city()
@@ -82,8 +86,26 @@ def generate_female_users(url):
             'city': city
         }
 
-        requests.post(url, json=payload)
+        payloads.append(payload)
 
+    return payloads
+
+
+async def post_generation_request(payload):
+    async with ClientSession() as session:
+        url = "http://172.17.0.1:8080/api/v1/auth/register"
+
+        async with session.post(url=url, data=payload) as resp:
+            json = await resp.json()
+
+
+async def main_generate_func(payloads):
+    tasks = []
+    for payload in payloads:
+        tasks.append(asyncio.create_task(post_generation_request(payload)))
+
+    for task in tasks:
+        await task
 
 if __name__ == '__main__':
     # How to know the host?
@@ -91,7 +113,10 @@ if __name__ == '__main__':
     # Windows/MacOS: Use http://host.docker.internal instead of http://localhost
     register_url = "http://172.17.0.1:8080/api/v1/auth/register"
 
-    generate_male_users(register_url)
-    print("Male users generation is over successfully")
-    generate_female_users(register_url)
-    print("Female users generation is over successfully")
+    male_payloads = generate_male_users()
+    print('Male preparation is finished')
+    female_payloads = generate_female_users()
+    print('Female preparation is finished')
+    all_payloads = male_payloads + female_payloads
+    asyncio.run(main_generate_func(all_payloads))
+    print('Generation is finished successfully')

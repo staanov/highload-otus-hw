@@ -1,4 +1,4 @@
 russian-names==0.1.2
-requests
+aiohttp
 pandas
 transliterate
